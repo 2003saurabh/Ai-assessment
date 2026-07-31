@@ -1,0 +1,36 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - AWS_AUTH_METHOD=${AWS_AUTH_METHOD:-sso}
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-south-1}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-apac.anthropic.claude-3-5-sonnet-20241022-v2:0}
+    volumes:
+      - ~/.aws:/root/.aws:ro
+      - faiss_data:/app/data/faiss_index
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  faiss_data:
