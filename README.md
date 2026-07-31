@@ -179,3 +179,7 @@ npm run dev
 | "What is the maternity leave policy?" | RAG | Answers from HR leave policy |
 | "Did order 1031 qualify for a return?" | Both | Checks order date + return policy |
 | "What's the weather today?" | Fallback | Safe "I don't have that" response |
+
+
+<img width="1249" height="1072" alt="image" src="https://github.com/user-attachments/assets/1b44be9b-e076-437e-b6b7-fbe51f7b7af9" />
+
