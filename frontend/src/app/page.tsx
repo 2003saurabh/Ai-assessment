@@ -15,6 +15,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   toolInfo?: ToolInfo;
+  status?: string;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -59,40 +60,46 @@ export default function Home() {
 
       let toolInfo: ToolInfo | undefined;
       let fullContent = "";
-      let isFirstChunk = true;
+      let currentStatus = "";
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const text = decoder.decode(value, { stream: true });
+        buffer += decoder.decode(value, { stream: true });
 
-        if (isFirstChunk) {
-          // First chunk contains metadata JSON
-          const newlineIndex = text.indexOf("\n");
-          if (newlineIndex !== -1) {
-            try {
-              const metadata = JSON.parse(text.substring(0, newlineIndex));
-              if (metadata.type === "metadata") {
-                toolInfo = {
-                  tool_used: metadata.tool_used,
-                  sql_query: metadata.sql_query,
-                  citations: metadata.citations,
-                  error: metadata.error,
-                };
-              }
-            } catch {
-              // Not metadata, treat as content
-              fullContent += text;
+        // Process complete lines (JSON messages end with \n)
+        while (buffer.includes("\n")) {
+          const newlineIndex = buffer.indexOf("\n");
+          const line = buffer.substring(0, newlineIndex);
+          buffer = buffer.substring(newlineIndex + 1);
+
+          // Try to parse as JSON (status or metadata)
+          try {
+            const parsed = JSON.parse(line);
+
+            if (parsed.type === "status") {
+              currentStatus = parsed.message;
+            } else if (parsed.type === "metadata") {
+              toolInfo = {
+                tool_used: parsed.tool_used,
+                sql_query: parsed.sql_query,
+                citations: parsed.citations,
+                error: parsed.error,
+              };
+              currentStatus = ""; // Clear status once we have metadata
             }
-            // Rest after newline is content
-            fullContent += text.substring(newlineIndex + 1);
-          } else {
-            fullContent += text;
+          } catch {
+            // Not JSON — it's content text
+            fullContent += line;
           }
-          isFirstChunk = false;
-        } else {
-          fullContent += text;
+        }
+
+        // Remaining buffer (no newline) is streaming content tokens
+        if (buffer && !buffer.startsWith("{")) {
+          fullContent += buffer;
+          buffer = "";
         }
 
         // Update assistant message
@@ -102,6 +109,22 @@ export default function Home() {
             role: "assistant",
             content: fullContent,
             toolInfo,
+            status: currentStatus,
+          };
+          return updated;
+        });
+      }
+
+      // Handle any remaining buffer as content
+      if (buffer) {
+        fullContent += buffer;
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            role: "assistant",
+            content: fullContent,
+            toolInfo,
+            status: "",
           };
           return updated;
         });

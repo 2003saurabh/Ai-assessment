@@ -10,11 +10,17 @@ class Settings:
     AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID", "")
     AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
     AWS_DEFAULT_REGION: str = os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
+
+    # Sonnet for final answers (quality matters)
     BEDROCK_MODEL_ID: str = os.getenv(
         "BEDROCK_MODEL_ID", "apac.anthropic.claude-3-5-sonnet-20241022-v2:0"
     )
-    FAISS_INDEX_PATH: str = os.getenv("FAISS_INDEX_PATH", "data/faiss_index")
-    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/orders.db")
+    # Haiku for routing + SQL generation (speed matters)
+    BEDROCK_FAST_MODEL_ID: str = os.getenv(
+        "BEDROCK_FAST_MODEL_ID", "apac.anthropic.claude-3-5-haiku-20241022-v1:0"
+    )
+
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://technova:technova_secret@localhost:5432/technova_db")
     DOCUMENTS_PATH: str = os.getenv("DOCUMENTS_PATH", "data/documents")
     CURRENT_DATE: str = "2026-06-15"
 

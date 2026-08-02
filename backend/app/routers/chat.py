@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 
 from app.models.schemas import ChatRequest
 from app.services.agent import get_agent
+from app.services.database import get_database
 
 router = APIRouter()
 
@@ -28,4 +29,13 @@ async def chat(request: ChatRequest):
 
 @router.get("/health")
 async def health():
-    return {"status": "healthy"}
+    db = get_database()
+    db_healthy = db.is_healthy()
+
+    status = "healthy" if db_healthy else "degraded"
+    return {
+        "status": status,
+        "components": {
+            "database": "up" if db_healthy else "down",
+        },
+    }

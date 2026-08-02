@@ -1,4 +1,6 @@
 import json
+import asyncio
+import logging
 from typing import AsyncGenerator
 
 from app.services.llm import get_llm
@@ -6,40 +8,46 @@ from app.services.vector_store import get_vector_store
 from app.services.database import get_database
 from app.config import settings
 
-ROUTER_SYSTEM_PROMPT = """You are a routing agent. Your job is to classify a user question into one of these categories:
+logger = logging.getLogger(__name__)
 
-1. "rag" - Questions about company policies, product information, HR policies, returns/refund policies, product FAQ. These are answered from documents.
-2. "sql" - Questions about orders, revenue, sales data, customer order history, order counts, order statuses. These require querying a database.
-3. "both" - Questions that need information from BOTH documents AND the orders database. For example, checking if an order qualifies for a policy.
-4. "fallback" - Questions that are completely unrelated to the company's knowledge base (e.g., general knowledge, personal opinions, weather).
+# Combined routing + SQL generation prompt (single Haiku call)
+ROUTER_SYSTEM_PROMPT = f"""You are a routing agent and SQL expert for TechNova Inc. Your job is to:
+1. Classify the user's question into a category.
+2. If the category requires SQL, generate the query immediately.
 
-Respond with ONLY a JSON object in this format:
-{"route": "rag"|"sql"|"both"|"fallback", "reasoning": "brief explanation"}
+Categories:
+- "rag" — Questions about company policies, product information, HR policies, returns/refund policies, product FAQ. Answered from documents.
+- "sql" — Questions about orders, revenue, sales data, customer order history, order counts, order statuses. Requires querying a database.
+- "both" — Questions that need BOTH documents AND the orders database.
+- "fallback" — Questions completely unrelated to the company's knowledge base.
 
-Do not include any other text outside the JSON."""
-
-SQL_GENERATION_PROMPT = f"""You are a SQL expert. Generate a SQLite query based on the user's question.
-
-Database schema:
+Database schema (for sql and both routes):
 Table: orders
 Columns:
 - order_id (INTEGER): Unique order identifier
 - customer (TEXT): Customer full name
 - product (TEXT): Product name (SmartHub Lite, SmartHub Pro, SmartHub Enterprise)
-- amount (REAL): Order amount in USD
+- amount (NUMERIC): Order amount in USD
 - status (TEXT): Order status (delivered, shipped, pending, cancelled)
-- order_date (TEXT): Order date in YYYY-MM-DD format
+- order_date (DATE): Order date in YYYY-MM-DD format
 
-Important:
-- The current date is {settings.CURRENT_DATE}. Use this for relative date calculations.
-- "Last month" means May 2026 (2026-05-01 to 2026-05-31).
-- "This month" means June 2026 (2026-06-01 to 2026-06-15).
+Important for SQL:
+- Current date is {settings.CURRENT_DATE}. Use this for relative date calculations.
+- "Last month" = May 2026 (2026-05-01 to 2026-05-31).
+- "This month" = June 2026 (2026-06-01 to 2026-06-15).
 - Only generate SELECT queries.
+- Use PostgreSQL syntax (DATE comparisons, ILIKE for case-insensitive).
 - Do NOT use columns that don't exist in the schema.
 
-Respond with ONLY the SQL query, no explanation or markdown formatting."""
+Respond with ONLY a JSON object:
+- If rag: {{"route": "rag"}}
+- If sql: {{"route": "sql", "sql_query": "SELECT ..."}}
+- If both: {{"route": "both", "sql_query": "SELECT ..."}}
+- If fallback: {{"route": "fallback"}}
 
-RAG_ANSWER_PROMPT = """You are a helpful assistant for TechNova Inc. Answer the user's question based ONLY on the provided context documents. 
+Do not include any text outside the JSON."""
+
+RAG_ANSWER_PROMPT = """You are a helpful assistant for TechNova Inc. Answer the user's question based ONLY on the provided context documents.
 
 Rules:
 - Only use information from the provided context.
@@ -99,11 +107,10 @@ class AgentService:
         self.database = get_database()
 
     def _route_question(self, question: str) -> dict:
-        """Determine which tool to use for the question."""
-        response = self.llm.invoke(ROUTER_SYSTEM_PROMPT, question)
+        """Route the question AND generate SQL if needed (single Haiku call)."""
+        response = self.llm.invoke(ROUTER_SYSTEM_PROMPT, question, use_fast_model=True)
 
         try:
-            # Try to parse the JSON response
             route_data = json.loads(response.strip())
             return route_data
         except json.JSONDecodeError:
@@ -115,7 +122,7 @@ class AgentService:
                     return json.loads(response[start:end])
                 except json.JSONDecodeError:
                     pass
-            return {"route": "fallback", "reasoning": "Could not parse routing response"}
+            return {"route": "fallback"}
 
     def _get_rag_context(self, question: str) -> tuple[str, list[str]]:
         """Retrieve relevant document chunks."""
@@ -136,26 +143,28 @@ class AgentService:
 
         return "\n\n---\n\n".join(context_parts), citations
 
-    def _generate_sql(self, question: str) -> str:
-        """Generate SQL query from the question."""
-        return self.llm.invoke(SQL_GENERATION_PROMPT, question).strip()
-
     async def process_question(self, question: str) -> AsyncGenerator[str, None]:
-        """Process a question through the agent pipeline with streaming."""
-        # Step 1: Route the question
+        """Process a question through the agent pipeline with streaming status."""
+
+        # STEP 1: Stream status — Thinking
+        yield json.dumps({"type": "status", "message": "Thinking..."}) + "\n"
+
+        # Route + generate SQL in ONE Haiku call
         route_data = self._route_question(question)
         route = route_data.get("route", "fallback")
+        sql_query = route_data.get("sql_query")
 
-        # Emit metadata as first chunk
+        # STEP 2: Handle each route
         metadata = {"type": "metadata", "tool_used": route}
 
         if route == "fallback":
-            metadata["answer_preview"] = FALLBACK_RESPONSE
             yield json.dumps(metadata) + "\n"
             yield FALLBACK_RESPONSE
             return
 
         if route == "rag":
+            yield json.dumps({"type": "status", "message": "Searching documents..."}) + "\n"
+
             context, citations = self._get_rag_context(question)
             metadata["citations"] = citations
             yield json.dumps(metadata) + "\n"
@@ -165,10 +174,16 @@ class AgentService:
                 yield token
 
         elif route == "sql":
-            sql_query = self._generate_sql(question)
-            # Clean SQL query (remove markdown code blocks if present)
-            sql_clean = sql_query.replace("```sql", "").replace("```", "").strip()
+            yield json.dumps({"type": "status", "message": "Querying database..."}) + "\n"
 
+            if not sql_query:
+                # Fallback: shouldn't happen, but handle gracefully
+                metadata["error"] = "No SQL query generated"
+                yield json.dumps(metadata) + "\n"
+                yield "I couldn't generate a query for that question. Please try rephrasing."
+                return
+
+            sql_clean = sql_query.replace("```sql", "").replace("```", "").strip()
             query_results = self.database.execute_query(sql_clean)
             metadata["sql_query"] = sql_clean
 
@@ -188,11 +203,21 @@ class AgentService:
                 yield token
 
         elif route == "both":
-            # Get both sources
-            context, citations = self._get_rag_context(question)
-            sql_query = self._generate_sql(question)
+            yield json.dumps({"type": "status", "message": "Searching documents & querying database..."}) + "\n"
+
+            if not sql_query:
+                sql_query = ""
+
             sql_clean = sql_query.replace("```sql", "").replace("```", "").strip()
-            query_results = self.database.execute_query(sql_clean)
+
+            # PARALLEL: Run RAG retrieval and SQL execution concurrently
+            loop = asyncio.get_event_loop()
+
+            rag_task = loop.run_in_executor(None, self._get_rag_context, question)
+            sql_task = loop.run_in_executor(None, self.database.execute_query, sql_clean)
+
+            # Wait for both to complete
+            (context, citations), query_results = await asyncio.gather(rag_task, sql_task)
 
             metadata["citations"] = citations
             metadata["sql_query"] = sql_clean

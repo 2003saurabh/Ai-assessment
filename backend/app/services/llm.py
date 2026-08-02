@@ -1,8 +1,10 @@
 import json
-import boto3
+import logging
 from typing import AsyncGenerator
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -12,9 +14,18 @@ class LLMService:
         session = get_aws_session()
         self.client = session.client("bedrock-runtime")
         self.model_id = settings.BEDROCK_MODEL_ID
+        self.fast_model_id = settings.BEDROCK_FAST_MODEL_ID
 
-    def invoke(self, system_prompt: str, user_message: str) -> str:
-        """Invoke Bedrock Claude model and return full response."""
+    def invoke(self, system_prompt: str, user_message: str, use_fast_model: bool = False) -> str:
+        """Invoke Bedrock Claude model and return full response.
+
+        Args:
+            system_prompt: The system prompt for the model.
+            user_message: The user message.
+            use_fast_model: If True, uses Haiku (fast) instead of Sonnet (quality).
+        """
+        model_id = self.fast_model_id if use_fast_model else self.model_id
+
         body = json.dumps(
             {
                 "anthropic_version": "bedrock-2023-05-31",
@@ -25,7 +36,7 @@ class LLMService:
         )
 
         response = self.client.invoke_model(
-            modelId=self.model_id,
+            modelId=model_id,
             body=body,
             contentType="application/json",
             accept="application/json",
@@ -37,7 +48,7 @@ class LLMService:
     async def stream(
         self, system_prompt: str, user_message: str
     ) -> AsyncGenerator[str, None]:
-        """Stream response from Bedrock Claude model."""
+        """Stream response from Bedrock Claude model (always uses Sonnet for quality)."""
         body = json.dumps(
             {
                 "anthropic_version": "bedrock-2023-05-31",

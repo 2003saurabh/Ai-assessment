@@ -1,4 +1,21 @@
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-technova}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-technova_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-technova_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/data/init_db.sql:/docker-entrypoint-initdb.d/01_init_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U technova -d technova_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: ./backend
     ports:
@@ -10,9 +27,13 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-south-1}
       - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-apac.anthropic.claude-3-5-sonnet-20241022-v2:0}
+      - BEDROCK_FAST_MODEL_ID=${BEDROCK_FAST_MODEL_ID:-apac.anthropic.claude-3-5-haiku-20241022-v1:0}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-technova}:${POSTGRES_PASSWORD:-technova_secret}@db:5432/${POSTGRES_DB:-technova_db}
     volumes:
       - ~/.aws:/root/.aws:ro
-      - faiss_data:/app/data/faiss_index
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
@@ -33,4 +54,4 @@ services:
         condition: service_healthy
 
 volumes:
-  faiss_data:
+  postgres_data:

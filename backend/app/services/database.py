@@ -1,41 +1,41 @@
-import sqlite3
-import pandas as pd
-from pathlib import Path
+import logging
+from contextlib import contextmanager
+
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseService:
     def __init__(self):
-        self.db_path = settings.DATABASE_PATH
-        self._initialize()
+        self.database_url = settings.DATABASE_URL
+        self._verify_connection()
 
-    def _initialize(self):
-        """Create SQLite database from CSV if it doesn't exist."""
-        db_path = Path(self.db_path)
+    def _verify_connection(self):
+        """Verify that the database is reachable on startup."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+            logger.info("Database connection verified successfully.")
+        except Exception as e:
+            logger.error(f"Database connection failed: {e}")
+            raise
 
-        if not db_path.exists():
-            self._build_database()
-
-    def _build_database(self):
-        """Build SQLite database from orders CSV."""
-        csv_path = Path("data/orders.csv")
-
-        if not csv_path.exists():
-            raise FileNotFoundError(f"Orders CSV not found: {csv_path}")
-
-        df = pd.read_csv(csv_path)
-
-        db_path = Path(self.db_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        conn = sqlite3.connect(str(db_path))
-        df.to_sql("orders", conn, if_exists="replace", index=False)
-        conn.close()
+    @contextmanager
+    def _get_connection(self):
+        """Get a database connection with automatic cleanup."""
+        conn = psycopg2.connect(self.database_url)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def execute_query(self, sql: str) -> dict:
         """Execute a SQL query and return results."""
-        conn = sqlite3.connect(self.db_path)
         try:
             # Only allow SELECT queries for safety
             sql_stripped = sql.strip().upper()
@@ -45,20 +45,20 @@ class DatabaseService:
                     "results": [],
                 }
 
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
+            with self._get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(sql)
+                    rows = cur.fetchall()
+                    columns = [desc[0] for desc in cur.description]
 
-            return {
-                "columns": columns,
-                "results": [dict(zip(columns, row)) for row in rows],
-                "row_count": len(rows),
-            }
+                    return {
+                        "columns": columns,
+                        "results": [dict(row) for row in rows],
+                        "row_count": len(rows),
+                    }
         except Exception as e:
+            logger.error(f"Query execution failed: {e} | SQL: {sql}")
             return {"error": str(e), "results": []}
-        finally:
-            conn.close()
 
     def get_schema(self) -> str:
         """Return the database schema for the LLM."""
@@ -67,11 +67,21 @@ Columns:
 - order_id (INTEGER): Unique order identifier
 - customer (TEXT): Customer full name
 - product (TEXT): Product name (SmartHub Lite, SmartHub Pro, SmartHub Enterprise)
-- amount (REAL): Order amount in USD
+- amount (NUMERIC): Order amount in USD
 - status (TEXT): Order status (delivered, shipped, pending, cancelled)
-- order_date (TEXT): Order date in YYYY-MM-DD format
+- order_date (DATE): Order date in YYYY-MM-DD format
 
 Note: The current date is 2026-06-15. Use this for any relative date calculations (e.g., "last month" = May 2026)."""
+
+    def is_healthy(self) -> bool:
+        """Check if the database connection is healthy."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
 
 
 # Singleton instance

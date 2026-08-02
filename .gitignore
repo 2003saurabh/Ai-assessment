@@ -9,8 +9,7 @@ __pycache__/
 venv/
 .venv/
 
-# FAISS index (generated at runtime)
-backend/data/faiss_index/
+# Generated at runtime
 backend/data/orders.db
 
 # Node
