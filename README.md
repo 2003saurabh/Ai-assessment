@@ -15,31 +15,8 @@ A production-grade chatbot that answers questions about TechNova Inc. using two 
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Next.js Frontend                       │
-│              (Streaming Chat UI + Tool Display)           │
-└──────────────────────────┬──────────────────────────────┘
-                           │ HTTP POST /api/chat (SSE stream)
-┌──────────────────────────▼──────────────────────────────┐
-│                   FastAPI Backend                         │
-│                                                          │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │              Router Agent (Claude)                 │   │
-│  │   Classifies: rag | sql | both | fallback         │   │
-│  └────────┬───────────────┬──────────────┬──────────┘   │
-│           │               │              │               │
-│  ┌────────▼────┐  ┌──────▼──────┐  ┌───▼────────┐     │
-│  │  RAG Tool   │  │  SQL Tool   │  │  Fallback  │     │
-│  │ FAISS + Emb │  │ SQLite Gen  │  │  Response  │     │
-│  └─────────────┘  └─────────────┘  └────────────┘     │
-│           │               │                              │
-│  ┌────────▼────┐  ┌──────▼──────┐                      │
-│  │   FAISS     │  │   SQLite    │                      │
-│  │   Index     │  │  (orders)   │                      │
-│  └─────────────┘  └─────────────┘                      │
-└──────────────────────────────────────────────────────────┘
-```
+<img width="2446" height="4139" alt="mermaid-diagram" src="https://github.com/user-attachments/assets/cf78947f-5f9f-4dcf-9d4f-528179542a51" />
+
 
 ### Request Flow
 
