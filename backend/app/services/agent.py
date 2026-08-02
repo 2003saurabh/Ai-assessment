@@ -1,6 +1,8 @@
 import json
 import asyncio
 import logging
+from datetime import date, datetime
+from decimal import Decimal
 from typing import AsyncGenerator
 
 from app.services.llm import get_llm
@@ -9,6 +11,15 @@ from app.services.database import get_database
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _default_serializer(obj):
+    """Handle non-serializable types from PostgreSQL."""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 # Combined routing + SQL generation prompt (single Haiku call)
 ROUTER_SYSTEM_PROMPT = f"""You are a routing agent and SQL expert for TechNova Inc. Your job is to:
@@ -201,7 +212,7 @@ class AgentService:
 
             prompt = SQL_ANSWER_PROMPT.format(
                 sql_query=sql_clean,
-                results=json.dumps(query_results["results"][:50], indent=2),
+                results=json.dumps(query_results["results"][:50], indent=2, default=_default_serializer),
             )
             async for token in self.llm.stream(prompt, question):
                 yield token
@@ -231,7 +242,7 @@ class AgentService:
                 context=context,
                 sql_query=sql_clean,
                 results=json.dumps(
-                    query_results.get("results", [])[:50], indent=2
+                    query_results.get("results", [])[:50], indent=2, default=_default_serializer
                 ),
             )
             async for token in self.llm.stream(prompt, question):
