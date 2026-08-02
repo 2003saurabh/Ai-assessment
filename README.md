@@ -16,39 +16,8 @@ A production-grade chatbot that answers questions about TechNova Inc. using two 
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Next.js Frontend                           │
-│         (Streaming Chat UI + Status Indicators + Tools)      │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ HTTP POST /api/chat (streaming)
-┌──────────────────────────▼──────────────────────────────────┐
-│                   FastAPI Backend                             │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │         Router Agent (Claude Haiku — fast)             │   │
-│  │   Classifies + generates SQL in ONE call               │   │
-│  │   Returns: {"route": "...", "sql_query": "..."}        │   │
-│  └────────┬───────────────┬──────────────┬──────────────┘   │
-│           │               │              │                   │
-│  ┌────────▼────┐  ┌──────▼──────┐  ┌───▼────────┐         │
-│  │  RAG Tool   │  │  SQL Tool   │  │  Fallback  │         │
-│  │  pgvector   │  │  Execute    │  │  Static    │         │
-│  │  + Titan    │  │  query      │  │  Response  │         │
-│  └─────────────┘  └─────────────┘  └────────────┘         │
-│           │               │                                  │
-│  ┌────────▼───────────────▼──────┐                          │
-│  │     PostgreSQL + pgvector      │                          │
-│  │  • orders table (structured)   │                          │
-│  │  • document_chunks (vectors)   │                          │
-│  └────────────────────────────────┘                          │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │         Answer Generator (Claude Sonnet — quality)    │   │
-│  │         Streams tokens back to frontend               │   │
-│  └──────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────┘
-```
+<img width="2876" height="4309" alt="mermaid-diagram dev" src="https://github.com/user-attachments/assets/51662fba-ae3b-4242-b583-9a82ccc487d2" />
+
 
 ### Request Flow
 
