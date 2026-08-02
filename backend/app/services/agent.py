@@ -110,16 +110,20 @@ class AgentService:
         """Route the question AND generate SQL if needed (single Haiku call)."""
         response = self.llm.invoke(ROUTER_SYSTEM_PROMPT, question, use_fast_model=True)
 
+        # Clean the response — Haiku sometimes puts literal newlines in SQL strings
+        # which makes the JSON invalid. Replace newlines inside the response before parsing.
+        cleaned = response.strip().replace("\n", " ").replace("\r", " ")
+
         try:
-            route_data = json.loads(response.strip())
+            route_data = json.loads(cleaned)
             return route_data
         except json.JSONDecodeError:
             # Try to extract JSON from the response
-            start = response.find("{")
-            end = response.rfind("}") + 1
+            start = cleaned.find("{")
+            end = cleaned.rfind("}") + 1
             if start != -1 and end > start:
                 try:
-                    return json.loads(response[start:end])
+                    return json.loads(cleaned[start:end])
                 except json.JSONDecodeError:
                     pass
             return {"route": "fallback"}
