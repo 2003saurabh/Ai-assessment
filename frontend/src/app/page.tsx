@@ -61,6 +61,7 @@ export default function Home() {
       let toolInfo: ToolInfo | undefined;
       let fullContent = "";
       let currentStatus = "";
+      let metadataReceived = false;
       let buffer = "";
 
       while (true) {
@@ -69,35 +70,43 @@ export default function Home() {
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Process complete lines (JSON messages end with \n)
+        // Process complete lines (JSON control messages end with \n)
         while (buffer.includes("\n")) {
           const newlineIndex = buffer.indexOf("\n");
           const line = buffer.substring(0, newlineIndex);
           buffer = buffer.substring(newlineIndex + 1);
 
-          // Try to parse as JSON (status or metadata)
-          try {
-            const parsed = JSON.parse(line);
+          if (!line) continue;
 
-            if (parsed.type === "status") {
-              currentStatus = parsed.message;
-            } else if (parsed.type === "metadata") {
-              toolInfo = {
-                tool_used: parsed.tool_used,
-                sql_query: parsed.sql_query,
-                citations: parsed.citations,
-                error: parsed.error,
-              };
-              currentStatus = ""; // Clear status once we have metadata
+          // Try to parse as JSON (status or metadata)
+          if (line.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(line);
+
+              if (parsed.type === "status") {
+                currentStatus = parsed.message;
+              } else if (parsed.type === "metadata") {
+                toolInfo = {
+                  tool_used: parsed.tool_used,
+                  sql_query: parsed.sql_query,
+                  citations: parsed.citations,
+                  error: parsed.error,
+                };
+                currentStatus = "";
+                metadataReceived = true;
+              }
+              continue;
+            } catch {
+              // JSON parse failed — treat as content
             }
-          } catch {
-            // Not JSON — it's content text
-            fullContent += line;
           }
+
+          // Not JSON — it's content text
+          fullContent += line;
         }
 
-        // Remaining buffer (no newline) is streaming content tokens
-        if (buffer && !buffer.startsWith("{")) {
+        // After metadata is received, all remaining buffer is answer content
+        if (metadataReceived && buffer) {
           fullContent += buffer;
           buffer = "";
         }
