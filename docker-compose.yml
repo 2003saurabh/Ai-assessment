@@ -21,16 +21,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - AWS_AUTH_METHOD=${AWS_AUTH_METHOD:-sso}
-      - AWS_PROFILE=${AWS_PROFILE:-default}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_AUTH_METHOD=${AWS_AUTH_METHOD:-iam_role}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-south-1}
       - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-apac.anthropic.claude-3-5-sonnet-20241022-v2:0}
       - BEDROCK_FAST_MODEL_ID=${BEDROCK_FAST_MODEL_ID:-apac.anthropic.claude-3-5-haiku-20241022-v1:0}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-technova}:${POSTGRES_PASSWORD:-technova_secret}@db:5432/${POSTGRES_DB:-technova_db}
-    volumes:
-      - ~/.aws:/root/.aws:ro
     depends_on:
       db:
         condition: service_healthy
